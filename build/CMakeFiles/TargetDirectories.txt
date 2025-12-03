@@ -1,3 +1,0 @@
-/home/seb/Projects/poker/build/CMakeFiles/my_app.dir
-/home/seb/Projects/poker/build/CMakeFiles/edit_cache.dir
-/home/seb/Projects/poker/build/CMakeFiles/rebuild_cache.dir
