@@ -1,7 +1,7 @@
 # CMakeLists.txt
 
 cmake_minimum_required(VERSION 3.10)
-project(MyCppProject)
+project(Poker)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -24,5 +24,5 @@ set(SOURCES
     src/Pot.cpp
   )
 
-add_executable(my_app ${SOURCES})
+add_executable(poker ${SOURCES})
 
