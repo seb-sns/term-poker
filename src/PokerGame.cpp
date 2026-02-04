@@ -36,9 +36,9 @@ void PokerGame::initiliazePlayers() {
   players.emplace_back(std::make_unique<Bot>(
       "Bot2", std::make_unique<MonteCarloHandStrength>(0.6), *this));
   players.emplace_back(std::make_unique<Bot>(
-      "Bot3", std::make_unique<MonteCarloHandStrength>(0.8), *this));
+      "Bot3", std::make_unique<BasicHandStrength>(0.4), *this));
   players.emplace_back(std::make_unique<Bot>(
-      "Bot4", std::make_unique<MonteCarloHandStrength>(1.0), *this));
+      "Bot4", std::make_unique<BasicHandStrength>(0.6), *this));
 
   for (auto &player : players) {
     activePlayers.push_back(player.get());
@@ -94,6 +94,12 @@ void PokerGame::resetForNextHand() {
   currentRound = Round::preflop;
 
   activePlayers.clear();
+
+  for (const auto &player : players) {
+    if (player->getChipCount() == 0) {
+      std::cout << player->getName() << " has gone bust!\n";
+    }
+  }
 
   players.erase(std::remove_if(players.begin(), players.end(),
                                [](const std::unique_ptr<Player> &player) {

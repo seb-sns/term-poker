@@ -32,4 +32,17 @@ private:
   double handStrengthAssessment;
 };
 
+class BasicHandStrength : public BotAlgorithm {
+public:
+  BasicHandStrength(double pacificity);
+
+  bool makeDecision(const PokerGame &game, const Player &bot) override;
+  int calculateBet(const PokerGame &game, const Player &bot) override;
+  void evaluateStrength(const PokerGame &game, const Player &bot);
+
+private:
+  double pacificity;
+  double handStrengthAssessment;
+};
+
 #endif

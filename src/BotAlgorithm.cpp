@@ -83,7 +83,7 @@ void MonteCarloHandStrength::evaluateStrength(const PokerGame &game,
 bool MonteCarloHandStrength::makeDecision(const PokerGame &game,
                                           const Player &bot) {
 
-  MonteCarloHandStrength::evaluateStrength(game, bot);
+  evaluateStrength(game, bot);
   if (handStrengthAssessment >= pacificity) {
     return true;
   } else {
@@ -98,4 +98,39 @@ int MonteCarloHandStrength::calculateBet(const PokerGame &game,
   int betSizeCalc = std::floor(baseBetSize * 1.5 * (2 - pacificity));
   int betSize = betSizeCalc - (betSizeCalc % 5);
   return std::min(currentChips, betSize);
+}
+
+BasicHandStrength::BasicHandStrength(double pacificity)
+    : pacificity(pacificity) {}
+
+int BasicHandStrength::calculateBet(const PokerGame &game,
+                                         const Player &bot) {
+  int currentChips = bot.getChipCount();
+  int baseBetSize = (bot.getTotalBet() + game.getSmallBlind());
+  int betSizeCalc = std::floor(baseBetSize * 1.5 * (2 - pacificity));
+  int betSize = betSizeCalc - (betSizeCalc % 5);
+  return std::min(currentChips, betSize);
+}
+
+bool BasicHandStrength::makeDecision(const PokerGame &game,
+                                          const Player &bot) {
+
+  evaluateStrength(game, bot);
+  if (handStrengthAssessment >= pacificity) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+void BasicHandStrength::evaluateStrength(const PokerGame &game, const Player&bot) {
+
+  std::vector<Card> tableCards = game.getTableCards();
+
+  const std::vector<Card> holeCards = bot.getCards();
+  HandEvaluator handEvaluator{HandEvaluator(tableCards, holeCards)};
+  HandEvaluation handEvaluation{handEvaluator.evaluateHand()};
+  int score = static_cast<int>(handEvaluation.type);
+  int adjustment = 6 - static_cast<int>(game.getRound());
+  handStrengthAssessment = score * adjustment / 2;
 }
