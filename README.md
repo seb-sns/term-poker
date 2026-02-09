@@ -30,7 +30,7 @@
 
     mkdir build && cd build
     cmake ..
-    cmake --build
+    cmake --build .
     
 <h3>
   Run
