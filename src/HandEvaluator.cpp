@@ -195,10 +195,10 @@ HandEvaluation HandEvaluator::isFullHouse() {
 
 HandEvaluation HandEvaluator::isFourOfAKind() {
   std::vector<Card> matchingCards;
-  matchingCards.reserve(5);
+  matchingCards.reserve(4);
 
   std::vector<Card> unmatchedCards;
-  unmatchedCards.reserve(5);
+  unmatchedCards.reserve(1);
 
   for (int i = sevenCardHand.size() - 1; i >= 3; --i) {
     if (static_cast<int>(sevenCardHand.at(i).getRank()) ==
@@ -216,8 +216,6 @@ HandEvaluation HandEvaluator::isFourOfAKind() {
       unmatchedCards = getKickerCards(sevenCardHand, matchingCards);
       return HandEvaluation{Hand::Type::FourOfAKind, matchingCards,
                             unmatchedCards};
-    } else {
-      unmatchedCards.push_back(sevenCardHand.at(i));
     }
   }
   matchingCards = std::vector(sevenCardHand.end() - 5, sevenCardHand.end());
@@ -226,14 +224,50 @@ HandEvaluation HandEvaluator::isFourOfAKind() {
 }
 
 HandEvaluation HandEvaluator::isStraightFlush() {
-  HandEvaluation straight{isStraight()};
-  HandEvaluation flush{isFlush()};
-  if (straight.type == Hand::Type::Straight &&
-      flush.type == Hand::Type::Flush &&
-      straight.primaryCards == flush.primaryCards) {
-    return HandEvaluation{Hand::Type::StraightFlush, straight.primaryCards,
-                          straight.secondaryCards};
+  std::unordered_map<Card::Suit, std::vector<Card>> suitMap;
+  for (const auto &card : sevenCardHand) {
+    suitMap[card.getSuit()].push_back(card);
   }
+
+  for (const auto &[suit, cards] : suitMap) {
+    if (cards.size() < 5) {
+      continue;
+    }
+
+    std::map<int, Card> rankToCard;
+    for (const auto &card : cards) {
+      int rank = static_cast<int>(card.getRank());
+      if (rankToCard.count(rank) == 0) {
+        rankToCard[rank] = card;
+      }
+    }
+    if (rankToCard.count(static_cast<int>(Card::Rank::Ace))) {
+      rankToCard[1] = rankToCard[static_cast<int>(Card::Rank::Ace)];
+    }
+
+    int count{1};
+    std::vector<Card> matchingCards;
+    matchingCards.reserve(5);
+    auto prev = rankToCard.begin();
+    auto curr = std::next(prev);
+    for (; curr != rankToCard.end(); ++curr, ++prev) {
+      if ((curr->first - prev->first) == 1) {
+        if (count == 1) {
+          matchingCards.push_back(prev->second);
+        }
+        matchingCards.push_back(curr->second);
+        ++count;
+      } else {
+        count = 1;
+        matchingCards.clear();
+      }
+      if (count == 5) {
+        return HandEvaluation{Hand::Type::StraightFlush, matchingCards,
+                              std::vector<Card>{}};
+      }
+    }
+  }
+
   std::vector<Card> matchingCards{
       std::vector(sevenCardHand.end() - 5, sevenCardHand.end())};
   return HandEvaluation{Hand::Type::HighCard, matchingCards,
@@ -270,12 +304,6 @@ HandEvaluation HandEvaluator::evaluateHand() {
   HandEvaluation hand;
 
   hand = isRoyalFlush();
-  if (hand.type != Hand::Type::HighCard)
-    return hand;
-
-  // Technically this code is not needed as the line above
-  // Returns the correct straight flush if there is no royal flush
-  hand = isStraightFlush();
   if (hand.type != Hand::Type::HighCard)
     return hand;
 

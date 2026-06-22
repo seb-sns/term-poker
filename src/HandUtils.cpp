@@ -10,7 +10,8 @@ std::vector<Card> getKickerCards(const std::vector<Card> &sevenCardHand,
                                  const std::vector<Card> &primaryHand) {
   std::vector<Card> remainingCards;
   std::map<Card, int> primaryCardCounts;
-  u_long remainingCardSlots{sevenCardHand.size() - primaryHand.size()};
+  std::size_t remainingCardSlots =
+      (primaryHand.size() <= 5) ? (5 - primaryHand.size()) : 0;
 
   for (const auto &item : primaryHand) {
     primaryCardCounts[item]++;
@@ -24,18 +25,21 @@ std::vector<Card> getKickerCards(const std::vector<Card> &sevenCardHand,
     }
   }
 
+  std::size_t slots = std::min(remainingCardSlots, remainingCards.size());
   return std::vector<Card>(remainingCards.begin(),
-                           remainingCards.begin() + remainingCardSlots);
+                           remainingCards.begin() + slots);
 }
 
 bool isHigherKickerPrimary(const std::vector<Card> &a,
                            const std::vector<Card> &b) {
   for (int i = a.size() - 1; i >= 0; --i) {
-    if (static_cast<int>(a[i].getRank()) < static_cast<int>(b[i].getRank())) {
-      return false;
-    } else if (static_cast<int>(a[i].getRank()) >
-               static_cast<int>(b[i].getRank())) {
+    int aRank = static_cast<int>(a[i].getRank());
+    int bRank = static_cast<int>(b[i].getRank());
+    if (aRank > bRank) {
       return true;
+    }
+    if (aRank < bRank) {
+      return false;
     }
   }
   return false;
@@ -45,8 +49,13 @@ bool isHigherKickerSecondary(const std::vector<Card> &a,
                              const std::vector<Card> &b) {
 
   for (int i = a.size() - 1; i >= 0; --i) {
-    if ((static_cast<int>(a[i].getRank()) > static_cast<int>(b[i].getRank()))) {
+    int aRank = static_cast<int>(a[i].getRank());
+    int bRank = static_cast<int>(b[i].getRank());
+    if (aRank > bRank) {
       return true;
+    }
+    if (aRank < bRank) {
+      return false;
     }
   }
   return false;
@@ -73,7 +82,7 @@ void printHandType(Hand::Type &handType) {
     std::cout << "Straight";
     break;
   case Hand::Type::Flush:
-    std::cout << "Fush";
+    std::cout << "Flush";
     break;
   case Hand::Type::FullHouse:
     std::cout << "Full House";
@@ -91,26 +100,20 @@ void printHandType(Hand::Type &handType) {
 }
 
 bool isEqualOrBetter(const HandEvaluation &handA, const HandEvaluation &handB) {
-
   if (handA.type > handB.type) {
     return true;
   }
-
-  else if (handA.type == handB.type) {
-    if (handA.primaryCards == handB.primaryCards &&
-        handA.primaryCards.size() == 5) {
-      return true;
-    } else if (handA.primaryCards == handB.primaryCards &&
-               handA.secondaryCards == handB.secondaryCards) {
-      return true;
-    } else if (isHigherKickerPrimary(handA.primaryCards, handB.primaryCards)) {
-      return true;
-    }
-
-    else if (isHigherKickerSecondary(handA.secondaryCards,
-                                     handB.secondaryCards)) {
-      return true;
-    }
+  if (handA.type != handB.type) {
+    return false;
   }
-  return false;
+
+  if (isHigherKickerPrimary(handA.primaryCards, handB.primaryCards)) {
+    return true;
+  }
+  if (isHigherKickerPrimary(handB.primaryCards, handA.primaryCards)) {
+    return false;
+  }
+  // Primary cards are equal; compare secondary kickers.
+  return isHigherKickerSecondary(handA.secondaryCards, handB.secondaryCards) ||
+         (handA.secondaryCards == handB.secondaryCards);
 }
