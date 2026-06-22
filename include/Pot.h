@@ -1,3 +1,6 @@
+#ifndef POT_H
+#define POT_H
+
 #include "Player.h"
 #include <set>
 #include <vector>
@@ -5,15 +8,16 @@
 class Pot {
 public:
   int amount;
-  int roundBeginAmount;
-  int minBet;
+  int minBet = 0;
+  int roundBeginAmount = 0;
   bool isMain;
   std::set<Player *> eligiblePlayers;
 
   void setRoundBeginAmount(int amount);
   void setEligibilePlayers(std::set<Player *> players);
   Pot(int amount, std::set<Player *> eligiblePlayers, bool isMain)
-      : amount(amount), eligiblePlayers(eligiblePlayers), isMain(isMain) {}
+      : amount(amount), isMain(isMain),
+        eligiblePlayers(eligiblePlayers) {}
 };
 
 class PotManager {
@@ -34,3 +38,5 @@ public:
 
   PotManager(){};
 };
+
+#endif

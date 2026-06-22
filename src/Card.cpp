@@ -2,7 +2,7 @@
 #include <ostream>
 #include <string>
 
-Card::Card() {}
+Card::Card() : suit(Suit::Clubs), rank(Rank::Two) {}
 Card::Card(Suit suit, Rank rank) : suit(suit), rank(rank) {}
 
 std::string Card::toString() const {

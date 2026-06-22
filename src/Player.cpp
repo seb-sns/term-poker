@@ -2,7 +2,7 @@
 #include <algorithm>
 
 Player::Player(const std::string &name)
-  : name(name), chipCount(1000), folded(false) {}
+  : name(name), chipCount(1000), folded(false), allIn(false) {}
 
 void Player::addCard(const Card &card) {
   hand.push_back(card);

@@ -14,7 +14,6 @@ protected:
   int totalBet = 0;
   bool folded;
   bool allIn;
-  bool hasCards = false;
 
 public:
   Player(const std::string &name);

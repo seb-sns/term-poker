@@ -14,15 +14,12 @@ void PotManager::createMainPot(std::set<Player *> eligiblePlayers) {
 }
 
 void PotManager::createSidePot(Player *player, Pot &mainPot, int playersActed) {
-  std::cerr << "Creating side pot..." << '\n';
   int roundBet = player->getRoundBet();
-  int nEligiblePlayers = mainPot.eligiblePlayers.size();
   int sidePotAmount = mainPot.roundBeginAmount + (playersActed + 1) * roundBet;
   mainPot.amount -= sidePotAmount;
   pots.emplace_back(Pot(sidePotAmount, mainPot.eligiblePlayers, false));
   pots[pots.size() - 1].minBet = roundBet;
   mainPot.eligiblePlayers.erase(player);
-  return;
 }
 
 void PotManager::addToSidePot(int playerBet, int index) {
@@ -31,7 +28,7 @@ void PotManager::addToSidePot(int playerBet, int index) {
 
 int PotManager::determineNewSidePot(const Player *player) {
   int i = 1;
-  for (Pot pot : pots) {
+  for (const Pot &pot : pots) {
     if (pot.isMain) {
       continue;
     }
@@ -45,7 +42,7 @@ int PotManager::determineNewSidePot(const Player *player) {
 
 int PotManager::findNewPotSplitLocation(const Player *player) {
   int i = 1;
-  for (Pot pot : pots) {
+  for (const Pot &pot : pots) {
     if (pot.isMain) {
       continue;
     }
@@ -58,12 +55,23 @@ int PotManager::findNewPotSplitLocation(const Player *player) {
 }
 
 void PotManager::payOutPots() {
-  for (Pot pot : pots) {
-    int payout = pot.amount / (pot.eligiblePlayers.size());
+  for (const Pot &pot : pots) {
+    if (pot.eligiblePlayers.empty()) {
+      continue;
+    }
+    int nWinners = static_cast<int>(pot.eligiblePlayers.size());
+    int payout = pot.amount / nWinners;
+    int remainder = pot.amount % nWinners;
     std::cout << "Payout of " << payout << " goes to ";
     for (Player *p : pot.eligiblePlayers) {
       std::cout << p->getName() << " ";
       p->addChips(payout);
+    }
+    if (remainder > 0) {
+      // Odd chip goes to first eligible player by set ordering (lowest address).
+      Player *extra = *pot.eligiblePlayers.begin();
+      extra->addChips(remainder);
+      std::cout << "(+" << remainder << " to " << extra->getName() << ")";
     }
     std::cout << std::endl;
   }

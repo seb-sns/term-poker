@@ -34,7 +34,7 @@ int User::placeBet(int currentBet) {
   return getValidBet(currentBet, minBet);
 }
 
-int User::getValidBet(int currentBet, int minBet) {
+int User::getValidBet(int /*currentBet*/, int minBet) {
   int bet;
   do {
     std::cout << "Enter your bet (0 to check/fold, " << minBet
