@@ -14,19 +14,17 @@ bool Bot::makeDecision() { return (algorithm->makeDecision(game, *this)); }
 int Bot::placeBet(int currentBet) {
   willingBet = algorithm->calculateBet(game, *this);
 
-  std::cout << '\n';
-  if (willingBet == chipCount) {
+  if (willingBet >= chipCount) {
     allIn = true;
-    return willingBet;
+    return chipCount;
   }
 
-  willingBet -= roundBet;
+  int minBet = currentBet - roundBet;
 
-  if (willingBet >= currentBet) {
+  if (willingBet >= minBet && willingBet > 0) {
     return willingBet;
-  } else {
-    return 0;
   }
+  return 0;
 }
 
 void Bot::takeTurn() {}
