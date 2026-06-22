@@ -26,10 +26,10 @@ PokerGame *PokerGame::getInstance() {
 PokerGame::PokerGame()
     : currentBet(0), bigBlind(20), smallBlind(10),
       currentRound(Round::preflop) {
-  initiliazePlayers();
+  initializePlayers();
 }
 
-void PokerGame::initiliazePlayers() {
+void PokerGame::initializePlayers() {
   players.emplace_back(std::make_unique<User>("Player1"));
   players.emplace_back(std::make_unique<Bot>(
       "Bot1", std::make_unique<MonteCarloHandStrength>(0.4), *this));
@@ -49,10 +49,10 @@ void PokerGame::playGame() {
   std::cout << "=== Texas Hold'em Poker ===" << std::endl;
   while (players.size() >= 2) {
     std::cout << "\n--- New hand ---" << std::endl;
-    std::set<Player *> activePlayersSet(activePlayers.begin(),
-                                        activePlayers.end());
-    potManager.createMainPot(activePlayersSet);
     resetForNextHand();
+    if (players.size() < 2) {
+      break;
+    }
     collectBlinds();
 
     // preflop
@@ -131,12 +131,21 @@ void PokerGame::collectBlinds() {
   std::cout << activePlayers[1]->getName() << " posts big blind: " << bigBlind
             << std::endl;
 
-  activePlayers[0]->addChips(-smallBlind);
-  activePlayers[0]->adjustRoundBet(smallBlind);
-  activePlayers[1]->addChips(-bigBlind);
-  activePlayers[1]->adjustRoundBet(bigBlind);
-  potManager.addToMainPot(smallBlind + bigBlind);
-  currentBet = bigBlind;
+  int smallBlindPosted = std::min(smallBlind, activePlayers[0]->getChipCount());
+  int bigBlindPosted = std::min(bigBlind, activePlayers[1]->getChipCount());
+
+  activePlayers[0]->addChips(-smallBlindPosted);
+  activePlayers[0]->adjustRoundBet(smallBlindPosted);
+  if (activePlayers[0]->getChipCount() == 0) {
+    activePlayers[0]->setAllIn(true);
+  }
+  activePlayers[1]->addChips(-bigBlindPosted);
+  activePlayers[1]->adjustRoundBet(bigBlindPosted);
+  if (activePlayers[1]->getChipCount() == 0) {
+    activePlayers[1]->setAllIn(true);
+  }
+  potManager.addToMainPot(smallBlindPosted + bigBlindPosted);
+  currentBet = bigBlindPosted;
 }
 
 void PokerGame::dealHoleCards() {
@@ -203,7 +212,8 @@ void PokerGame::playBettingRound() {
     currentBet = 0;
   }
 
-  while (activePlayers.size() > 1 && playersActed < activePlayers.size()) {
+  while (activePlayers.size() > 1 &&
+         playersActed < static_cast<int>(activePlayers.size())) {
     Player *player = activePlayers[currentPlayer];
 
     if (!player->hasFolded() && player->isAllIn()) {
@@ -231,7 +241,7 @@ void PokerGame::playBettingRound() {
   }
 }
 
-bool PokerGame::handlePlayerAction(Player *player, int playerIndex,
+bool PokerGame::handlePlayerAction(Player *player, int /*playerIndex*/,
                                    int playersActed) {
   std::cout << "\n" << player->getName() << "'s turn: ";
 
@@ -242,7 +252,7 @@ bool PokerGame::handlePlayerAction(Player *player, int playerIndex,
   }
 
   int minBet{currentBet - player->getRoundBet()};
-  int playerBet{getPlayerBet(player, currentBet)};
+  int playerBet{getPlayerBet(player)};
   if (playerBet == 0 && minBet > 0) {
     player->setFolded(true);
     potManager.foldPlayer(player);
@@ -305,11 +315,9 @@ bool PokerGame::handlePlayerAction(Player *player, int playerIndex,
       return true;
     }
   }
-
-  return true;
 }
 
-int PokerGame::getPlayerBet(Player *player, int minBet) {
+int PokerGame::getPlayerBet(Player *player) {
   if (player->hasFolded())
     return 0;
 
@@ -323,31 +331,6 @@ int PokerGame::getPlayerBet(Player *player, int minBet) {
 
   int bet{player->placeBet(currentBet)};
   return bet;
-}
-
-void PokerGame::addToMainPot(int amount) {
-  potManager.pots[0].amount += amount;
-}
-
-void PokerGame::adjustSidePots(int amount) {
-  int pot;
-  int potMinimum;
-  int delta;
-  for (auto &currentPot : sidePots) {
-    pot = currentPot.first;
-    potMinimum = currentPot.second;
-    delta = potMinimum - amount;
-    if (delta == 0) {
-      currentPot.first += amount;
-      return;
-    } else if (delta > 0) {
-      sidePots.emplace_front(delta, amount);
-      return;
-    }
-  }
-  sidePots.back().first = delta;
-  sidePots.emplace_back(amount, amount);
-  return;
 }
 
 void PokerGame::advanceRound() {
@@ -391,59 +374,28 @@ void PokerGame::determineWinner() {
                                    std::vector<Card>{}};
     std::set<Player *> winningPlayers;
     for (Player *player : pot.eligiblePlayers) {
-      bool isBetter = false;
-      bool isEqual = false;
+      if (player->hasFolded()) {
+        continue;
+      }
       HandEvaluator playerEvaluator{
           HandEvaluator(tableCards, player->getCards())};
       HandEvaluation playerHand{playerEvaluator.evaluateHand()};
-      if (playerHand.type > currentBestHand.type) {
-        isBetter = true;
-      }
 
-      else if (playerHand.type == currentBestHand.type) {
-        if (isHigherKickerPrimary(playerHand.primaryCards,
-                                  currentBestHand.primaryCards)) {
-          std::cerr << player->getName() << " has a better primary kicker"
-                    << '\n';
-          isBetter = true;
-        } else if (playerHand.primaryCards.size() != 5 &&
-                   isHigherKickerSecondary(playerHand.secondaryCards,
-                                           currentBestHand.secondaryCards)) {
-          std::cerr << player->getName() << " has a better secondary kicker"
-                    << '\n';
-          isBetter = true;
+      bool playerBeatsBest = isEqualOrBetter(playerHand, currentBestHand);
+      bool bestBeatsPlayer = isEqualOrBetter(currentBestHand, playerHand);
 
-        } else if (!isHigherKickerPrimary(currentBestHand.primaryCards,
-                                          playerHand.primaryCards)) {
-          // Since we know that player hand is not better than the current best
-          // hand
-          std::cerr << player->getName() << "has a equal primary kicker"
-                    << '\n';
-          isEqual = true;
-        }
-
-        else if (playerHand.primaryCards.size() != 5 &&
-                 !isHigherKickerSecondary(currentBestHand.primaryCards,
-                                          playerHand.primaryCards)) {
-          // Since we know that player hand is not better than the current best
-          // hand
-          std::cerr << player->getName() << "has a equal secondary kicker"
-                    << '\n';
-          isEqual = true;
-        }
-      }
-
-      if (isBetter) {
+      if (playerBeatsBest && !bestBeatsPlayer) {
         currentBestHand = playerHand;
         winningPlayers.clear();
         winningPlayers.insert(player);
-      } else if (isEqual) {
+      } else if (playerBeatsBest && bestBeatsPlayer) {
         winningPlayers.insert(player);
       }
     }
     pot.eligiblePlayers = winningPlayers;
     std::cout << "Best hand was ";
-    printHandType(currentBestHand.type);
+    Hand::Type bestType = currentBestHand.type;
+    printHandType(bestType);
     std::cout << std::endl;
   }
 
@@ -466,8 +418,6 @@ void PokerGame::displayPots() {
 }
 
 void PokerGame::displayGameState() {
-  void clearScreen();
-
   std::cout << "\n╔════════════════════════════════════════════╗\n";
   std::cout << "║                POKER GAME STATE            ║\n";
   std::cout << "╠════════════════════════════════════════════╣\n";

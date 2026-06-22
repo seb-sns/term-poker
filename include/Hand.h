@@ -16,9 +16,6 @@ struct Hand {
     StraightFlush,
     RoyalFlush
   };
-
-  Type hand;
-  Hand(Type hand) : hand(hand) {}
 };
 
 #endif

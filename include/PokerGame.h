@@ -5,10 +5,7 @@
 #include "Player.h"
 #include "Pot.h"
 
-#include <deque>
-#include <map>
 #include <memory>
-#include <utility>
 #include <vector>
 
 class PokerGame {
@@ -20,11 +17,10 @@ public:
   std::vector<Card> getTableCards() const { return tableCards; }
   Round getRound() const { return currentRound; }
   PotManager getPot() const { return potManager; }
-  std::deque<std::pair<int, int>> getSidePot() const { return sidePots; }
   int getBigBlind() const { return bigBlind; }
   int getSmallBlind() const { return smallBlind; }
   int getCurrentBet() const { return currentBet; }
-  int getNPlayers() const { return activePlayers.size(); }
+  int getActivePlayerCount() const;
 
   static PokerGame *getInstance();
 
@@ -37,13 +33,12 @@ private:
   Deck deck;
   std::vector<Card> tableCards;
   PotManager potManager;
-  std::deque<std::pair<int, int>> sidePots;
   int currentBet;
   int bigBlind;
   int smallBlind;
   Round currentRound;
 
-  void initiliazePlayers();
+  void initializePlayers();
   void dealHoleCards();
   void playBettingRound();
   void dealTableCards(int count);
@@ -53,15 +48,9 @@ private:
   void displayGameState();
 
   bool handlePlayerAction(Player *player, int playerIndex, int playersActed);
-  int getPlayerBet(Player *player, int minBet);
-  void addToMainPot(int amount);
-  void adjustSidePots(int amount);
-
+  int getPlayerBet(Player *player);
   void advanceRound();
-  bool isBettingComplete() const;
   void collectBlinds();
-  int getActivePlayerCount() const;
-  std::vector<Player *> getPlayersWhoCanBet() const;
 
   void determineWinner();
 };
