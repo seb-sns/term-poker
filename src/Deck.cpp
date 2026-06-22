@@ -42,17 +42,26 @@ bool Deck::isEmpty() const { return cards.empty(); }
 
 int Deck::size() const { return static_cast<int>(cards.size()); }
 
-Deck::Deck(Deck &other) noexcept
-    : cards(other.cards), rd(),
+Deck::Deck(Deck &other)
+    : cards(other.cards), gen(std::random_device{}()) {}
 
-      gen(std::random_device{}()) {}
+Deck::Deck(const Deck &other)
+    : cards(other.cards), gen(std::random_device{}()) {}
 
 Deck::Deck(Deck &&other) noexcept
-    : cards(std::move(other.cards)), rd(), gen(std::random_device{}()) {}
+    : cards(std::move(other.cards)), gen(std::random_device{}()) {}
 
 Deck &Deck::operator=(Deck &&other) noexcept {
   if (this != &other) {
     cards = std::move(other.cards);
+    gen = std::mt19937(std::random_device{}());
+  }
+  return *this;
+}
+
+Deck &Deck::operator=(const Deck &other) {
+  if (this != &other) {
+    cards = other.cards;
     gen = std::mt19937(std::random_device{}());
   }
   return *this;

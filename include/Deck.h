@@ -23,9 +23,11 @@ public:
   int size() const;
   void reset();
 
-  Deck(Deck &other) noexcept;
+  Deck(Deck &other);
   Deck(Deck &&other) noexcept;
   Deck &operator=(Deck &&other) noexcept;
+  Deck(const Deck &other);
+  Deck &operator=(const Deck &other);
 };
 
 #endif
