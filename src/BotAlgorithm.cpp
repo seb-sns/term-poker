@@ -1,19 +1,95 @@
-#include "Player.h"
-
-#include "PokerGame.h"
-
 #include "BotAlgorithm.h"
-
-#include "HandEvaluation.h"
-#include "HandEvaluator.h"
 
 #include "Card.h"
 #include "Deck.h"
-
+#include "HandEvaluation.h"
+#include "HandEvaluator.h"
 #include "HandUtils.h"
+#include "Player.h"
+#include "PokerGame.h"
+#include "Pot.h"
 
-MonteCarloHandStrength::MonteCarloHandStrength(double pacificity)
-    : nSimulations(10000), pacificity(pacificity) {}
+#include <algorithm>
+#include <cmath>
+
+namespace {
+
+// Early streets inflate strength a little so bots see speculative hands.
+double roundFactor(PokerGame::Round round) {
+  switch (round) {
+  case PokerGame::Round::preflop:
+    return 1.4;
+  case PokerGame::Round::flop:
+    return 1.2;
+  case PokerGame::Round::turn:
+    return 1.1;
+  default:
+    return 1.0;
+  }
+}
+
+int totalPot(const PokerGame &game) {
+  int total = 0;
+  for (const Pot &pot : game.getPot().pots) {
+    total += pot.amount;
+  }
+  return total;
+}
+
+} // namespace
+
+BotAlgorithm::BotAlgorithm(BotProfile profile)
+    : profile(std::move(profile)), rng(std::random_device{}()) {}
+
+double BotAlgorithm::chance() {
+  return std::uniform_real_distribution<double>(0.0, 1.0)(rng);
+}
+
+bool BotAlgorithm::makeDecision(const PokerGame &game, const Player &bot) {
+  handStrength = evaluateStrength(game, bot);
+  bluffing = false;
+
+  if (handStrength >= profile.tightness) {
+    return true;
+  }
+  // Weak hand: occasionally play it anyway to stay unpredictable.
+  if (chance() < profile.bluffFrequency) {
+    bluffing = true;
+    return true;
+  }
+  return false;
+}
+
+int BotAlgorithm::calculateBet(const PokerGame &game, const Player &bot) {
+  int minBet = std::max(0, game.getCurrentBet() - bot.getRoundBet());
+  int pot = std::max(totalPot(game), 2 * game.getBigBlind());
+
+  // How far above the fold threshold the hand is; a bluff pretends to have
+  // a moderately strong hand.
+  double margin = bluffing
+                      ? 0.6
+                      : std::min(handStrength - profile.tightness, 1.5);
+
+  double raiseChance = profile.aggression * (0.35 + 0.45 * margin);
+  if (chance() >= raiseChance) {
+    return minBet; // call, or check when there is nothing to match
+  }
+
+  double potFraction = 0.35 + 0.65 * profile.aggression * margin;
+  if (bluffing) {
+    potFraction = std::min(potFraction, 0.75);
+  }
+  int extra = std::max(game.getBigBlind(),
+                       static_cast<int>(pot * potFraction));
+  extra = std::min(extra, pot * 5 / 2);
+
+  int bet = minBet + extra;
+  bet -= bet % 5;
+  return std::max(bet, minBet + game.getBigBlind());
+}
+
+MonteCarloHandStrength::MonteCarloHandStrength(BotProfile profile)
+    : BotAlgorithm(std::move(profile)), nSimulations(5000) {}
 
 Deck MonteCarloHandStrength::getRemainingCardDeck(const PokerGame &game,
                                                   const Player &bot) {
@@ -31,8 +107,8 @@ Deck MonteCarloHandStrength::getRemainingCardDeck(const PokerGame &game,
   return deck;
 }
 
-void MonteCarloHandStrength::evaluateStrength(const PokerGame &game,
-                                              const Player &bot) {
+double MonteCarloHandStrength::evaluateStrength(const PokerGame &game,
+                                                const Player &bot) {
   int count = 0;
   std::vector<Card> tableCards = game.getTableCards();
   tableCards.reserve(5);
@@ -45,8 +121,7 @@ void MonteCarloHandStrength::evaluateStrength(const PokerGame &game,
   int remainingPlayers = game.getActivePlayerCount() - 1;
 
   if (remainingPlayers <= 0) {
-    handStrengthAssessment = 1.0;
-    return;
+    return 1.0;
   }
 
   for (int i = 0; i < nSimulations; ++i) {
@@ -78,64 +153,23 @@ void MonteCarloHandStrength::evaluateStrength(const PokerGame &game,
       ++count;
     }
   }
-  double score = count / static_cast<double>(nSimulations);
+  double winProbability = count / static_cast<double>(nSimulations);
   double neutralValue = 1.0 / (remainingPlayers + 1);
-  int adjustment = 6 - static_cast<int>(game.getRound());
-  score = score * adjustment / 2;
-  handStrengthAssessment = (score / neutralValue);
+  return (winProbability / neutralValue) * roundFactor(game.getRound());
 }
 
-bool MonteCarloHandStrength::makeDecision(const PokerGame &game,
-                                          const Player &bot) {
+BasicHandStrength::BasicHandStrength(BotProfile profile)
+    : BotAlgorithm(std::move(profile)) {}
 
-  evaluateStrength(game, bot);
-  if (handStrengthAssessment >= pacificity) {
-    return true;
-  } else {
-    return false;
-  }
-}
-
-int MonteCarloHandStrength::calculateBet(const PokerGame &game,
-                                         const Player &bot) {
-  int currentChips = bot.getChipCount();
-  int baseBetSize = (bot.getTotalBet() + game.getSmallBlind());
-  int betSizeCalc = std::floor(baseBetSize * 1.5 * (2 - pacificity));
-  int betSize = betSizeCalc - (betSizeCalc % 5);
-  return std::min(currentChips, betSize);
-}
-
-BasicHandStrength::BasicHandStrength(double pacificity)
-    : pacificity(pacificity) {}
-
-int BasicHandStrength::calculateBet(const PokerGame &game, const Player &bot) {
-  int currentChips = bot.getChipCount();
-  int baseBetSize = (bot.getTotalBet() + game.getSmallBlind());
-  int betSizeCalc = std::floor(baseBetSize * 1.5 * (2 - pacificity));
-  int betSize = betSizeCalc - (betSizeCalc % 5);
-  return std::min(currentChips, betSize);
-}
-
-bool BasicHandStrength::makeDecision(const PokerGame &game, const Player &bot) {
-
-  evaluateStrength(game, bot);
-  if (handStrengthAssessment >= pacificity) {
-    return true;
-  } else {
-    return false;
-  }
-}
-
-void BasicHandStrength::evaluateStrength(const PokerGame &game,
-                                         const Player &bot) {
-
+double BasicHandStrength::evaluateStrength(const PokerGame &game,
+                                           const Player &bot) {
   std::vector<Card> tableCards = game.getTableCards();
 
   const std::vector<Card> holeCards = bot.getCards();
   HandEvaluator handEvaluator{HandEvaluator(tableCards, holeCards)};
   HandEvaluation handEvaluation{handEvaluator.evaluateHand()};
   int score = static_cast<int>(handEvaluation.type);
-  int adjustment = 6 - static_cast<int>(game.getRound());
-  // Normalize: HighCard(1) -> 1, RoyalFlush(10) -> 10. Pacificity is in [0,2].
-  handStrengthAssessment = static_cast<double>(score * adjustment) / 10.0;
+  // HighCard(1) .. RoyalFlush(10) mapped onto the same ~1.0-neutral scale
+  // as the Monte Carlo estimate: a pair rates just above average.
+  return score * roundFactor(game.getRound()) / 2.5;
 }

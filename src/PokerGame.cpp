@@ -1,4 +1,5 @@
 #include "PokerGame.h"
+#include "GameIO.h"
 #include "Hand.h"
 #include "HandEvaluation.h"
 #include "HandEvaluator.h"
@@ -9,11 +10,20 @@
 #include "User.h"
 
 #include <algorithm>
-#include <iomanip>
-#include <iostream>
 #include <string>
 
 PokerGame *PokerGame::gameInstance = nullptr;
+
+namespace {
+std::vector<BotSpec> &pendingBots() {
+  static std::vector<BotSpec> specs = defaultBotLineup();
+  return specs;
+}
+} // namespace
+
+void PokerGame::configureBots(const std::vector<BotSpec> &specs) {
+  pendingBots() = specs;
+}
 
 PokerGame *PokerGame::getInstance() {
   if (gameInstance == nullptr) {
@@ -31,24 +41,39 @@ PokerGame::PokerGame()
 
 void PokerGame::initializePlayers() {
   players.emplace_back(std::make_unique<User>("Player1"));
-  players.emplace_back(std::make_unique<Bot>(
-      "Bot1", std::make_unique<MonteCarloHandStrength>(0.4), *this));
-  players.emplace_back(std::make_unique<Bot>(
-      "Bot2", std::make_unique<MonteCarloHandStrength>(0.6), *this));
-  players.emplace_back(std::make_unique<Bot>(
-      "Bot3", std::make_unique<BasicHandStrength>(0.4), *this));
-  players.emplace_back(std::make_unique<Bot>(
-      "Bot4", std::make_unique<BasicHandStrength>(0.6), *this));
+  for (const BotSpec &spec : pendingBots()) {
+    players.emplace_back(
+        std::make_unique<Bot>(spec.name, makeBotAlgorithm(spec), *this));
+  }
 
   for (auto &player : players) {
     activePlayers.push_back(player.get());
   }
 }
 
+namespace {
+std::string roundToString(PokerGame::Round round) {
+  switch (round) {
+  case PokerGame::Round::preflop:
+    return "Pre-flop";
+  case PokerGame::Round::flop:
+    return "Flop";
+  case PokerGame::Round::turn:
+    return "Turn";
+  case PokerGame::Round::river:
+    return "River";
+  case PokerGame::Round::showdown:
+    return "Showdown";
+  }
+  return "Cards";
+}
+} // namespace
+
 void PokerGame::playGame() {
-  std::cout << "=== Texas Hold'em Poker ===" << std::endl;
+  gameIO().log("Texas Hold'em", LogKind::Section);
   while (players.size() >= 2) {
-    std::cout << "\n--- New hand ---" << std::endl;
+    ++handNumber;
+    gameIO().log("Hand #" + std::to_string(handNumber), LogKind::Section);
     resetForNextHand();
     if (players.size() < 2) {
       break;
@@ -82,8 +107,43 @@ void PokerGame::playGame() {
     determineWinner();
   }
 
-  std::cout << "Winner is: " << players[0]->getName() << '\n' << '\n';
-  std::cout << "=== Thank you for playing! ===" << std::endl;
+  gameIO().log(players[0]->getName() + " wins the game", LogKind::Win);
+  gameIO().gameOver(players[0]->getName());
+}
+
+void PokerGame::publishState(const Player *acting) {
+  GameSnapshot snapshot;
+  snapshot.roundName = roundToString(currentRound);
+  snapshot.tableCards = tableCards;
+  snapshot.currentBet = currentBet;
+  snapshot.showdown = currentRound == Round::showdown;
+
+  for (const Pot &pot : potManager.pots) {
+    snapshot.pots.push_back({pot.amount, pot.isMain});
+  }
+
+  for (Player *player : activePlayers) {
+    PlayerView view;
+    view.name = player->getName();
+    if (const Bot *bot = dynamic_cast<const Bot *>(player)) {
+      view.style = bot->getStyle();
+    } else {
+      view.style = "you";
+    }
+    view.cards = player->getCards();
+    view.chips = player->getChipCount();
+    view.roundBet = player->getRoundBet();
+    view.folded = player->hasFolded();
+    view.allIn = player->isAllIn();
+    view.isUser = dynamic_cast<User *>(player) != nullptr;
+    view.isActing = player == acting;
+    if (view.isUser) {
+      snapshot.userHand = view.cards;
+    }
+    snapshot.players.push_back(std::move(view));
+  }
+
+  gameIO().updateState(snapshot);
 }
 
 void PokerGame::resetForNextHand() {
@@ -97,7 +157,7 @@ void PokerGame::resetForNextHand() {
 
   for (const auto &player : players) {
     if (player->getChipCount() == 0) {
-      std::cout << player->getName() << " has gone bust!\n";
+      gameIO().log(player->getName() + " is out of chips", LogKind::Alert);
     }
   }
 
@@ -125,14 +185,13 @@ void PokerGame::resetForNextHand() {
 }
 
 void PokerGame::collectBlinds() {
-  std::cout << "\n--- Collecting Blinds ---" << std::endl;
-  std::cout << activePlayers[0]->getName()
-            << " posts small blind: " << smallBlind << std::endl;
-  std::cout << activePlayers[1]->getName() << " posts big blind: " << bigBlind
-            << std::endl;
-
   int smallBlindPosted = std::min(smallBlind, activePlayers[0]->getChipCount());
   int bigBlindPosted = std::min(bigBlind, activePlayers[1]->getChipCount());
+
+  gameIO().log(activePlayers[0]->getName() + " posts small blind " +
+               std::to_string(smallBlindPosted));
+  gameIO().log(activePlayers[1]->getName() + " posts big blind " +
+               std::to_string(bigBlindPosted));
 
   activePlayers[0]->addChips(-smallBlindPosted);
   activePlayers[0]->adjustRoundBet(smallBlindPosted);
@@ -149,58 +208,23 @@ void PokerGame::collectBlinds() {
 }
 
 void PokerGame::dealHoleCards() {
-  std::cout << "\n--- Dealing hole cards ---" << std::endl;
   for (int i = 0; i < 2; i++) {
     for (auto *player : activePlayers) {
       player->addCard(deck.dealCard());
     }
   }
+  publishState();
 }
 
 void PokerGame::dealTableCards(int count) {
   for (int i = 0; i < count; i++) {
     tableCards.push_back(deck.dealCard());
   }
-}
-
-void PokerGame::showTableCards() {
-  std::string roundName;
-  switch (currentRound) {
-  case Round::preflop:
-    roundName = "Pre-flop";
-    break;
-  case Round::flop:
-    roundName = "Flop";
-    break;
-  case Round::turn:
-    roundName = "Turn";
-    break;
-  case Round::river:
-    roundName = "River";
-    break;
-  case Round::showdown:
-    roundName = "Showdown";
-    break;
-  default:
-    roundName = "Cards";
-    break;
-  }
-
-  std::cout << "║                ";
-  std::cout << roundName << ": ";
-  for (const auto &card : tableCards) {
-    std::cout << card.toString() << " ";
-  }
-  std::cout << std::endl;
+  publishState();
 }
 
 void PokerGame::playBettingRound() {
-  std::cout << "\n--- "
-            << (currentRound == Round::preflop ? "Pre-flop"
-                : currentRound == Round::flop  ? "Flop"
-                : currentRound == Round::turn  ? "Turn"
-                                               : "River")
-            << " ---" << std::endl;
+  gameIO().log(roundToString(currentRound), LogKind::Section);
 
   int startingPlayer =
       (currentRound == Round::preflop && activePlayers.size() > 2) ? 2 : 0;
@@ -211,6 +235,7 @@ void PokerGame::playBettingRound() {
   if (currentRound != Round::preflop) {
     currentBet = 0;
   }
+  publishState();
 
   while (activePlayers.size() > 1 &&
          playersActed < static_cast<int>(activePlayers.size())) {
@@ -230,6 +255,7 @@ void PokerGame::playBettingRound() {
         hasActed[currentPlayer] = true;
         playersActed = 1;
       }
+      publishState();
     } else if (!player->hasFolded() && hasActed[currentPlayer]) {
       playersActed++;
     }
@@ -243,12 +269,8 @@ void PokerGame::playBettingRound() {
 
 bool PokerGame::handlePlayerAction(Player *player, int /*playerIndex*/,
                                    int playersActed) {
-  std::cout << "\n" << player->getName() << "'s turn: ";
-
   if (dynamic_cast<User *>(player)) {
-    displayGameState();
-    player->takeTurn();
-    std::cout << std::endl;
+    publishState(player);
   }
 
   int minBet{currentBet - player->getRoundBet()};
@@ -256,13 +278,13 @@ bool PokerGame::handlePlayerAction(Player *player, int /*playerIndex*/,
   if (playerBet == 0 && minBet > 0) {
     player->setFolded(true);
     potManager.foldPlayer(player);
-    std::cout << player->getName() << " folds." << '\n';
+    gameIO().log(player->getName() + " folds");
     return true;
   } else if (playerBet == 0) {
-    std::cout << player->getName() << " checks." << '\n';
+    gameIO().log(player->getName() + " checks");
     return true;
   } else if (playerBet > 0 && (player->isAllIn())) {
-    std::cout << player->getName() << " goes all in." << '\n';
+    gameIO().log(player->getName() + " is all in", LogKind::Alert);
     player->adjustRoundBet(playerBet);
     player->adjustTotalBet(playerBet);
     player->addChips(-playerBet);
@@ -272,7 +294,6 @@ bool PokerGame::handlePlayerAction(Player *player, int /*playerIndex*/,
       if (potManager.pots.size() == 1) {
         potManager.addToMainPot(playerBet);
         potManager.createSidePot(player, potManager.pots[0], playersActed);
-        std::cerr << "\n";
         return true;
       }
       int index = potManager.determineNewSidePot(player);
@@ -288,12 +309,11 @@ bool PokerGame::handlePlayerAction(Player *player, int /*playerIndex*/,
     } else if (bet > currentBet) {
       potManager.addToMainPot(playerBet);
       currentBet = bet;
-      std::cout << player->getName() << " raises to " << bet << "."
-                << std::endl;
+      gameIO().log(player->getName() + " raises to " + std::to_string(bet));
       return false;
     } else {
       potManager.addToMainPot(playerBet);
-      std::cout << player->getName() << " calls " << bet << "." << std::endl;
+      gameIO().log(player->getName() + " calls " + std::to_string(bet));
       return true;
     }
 
@@ -307,11 +327,10 @@ bool PokerGame::handlePlayerAction(Player *player, int /*playerIndex*/,
 
     if (bet > currentBet) {
       currentBet = bet;
-      std::cout << player->getName() << " raises to " << bet << "."
-                << std::endl;
+      gameIO().log(player->getName() + " raises to " + std::to_string(bet));
       return false;
     } else {
-      std::cout << player->getName() << " calls " << bet << "." << std::endl;
+      gameIO().log(player->getName() + " calls " + std::to_string(bet));
       return true;
     }
   }
@@ -364,7 +383,8 @@ int PokerGame::getActivePlayerCount() const {
 }
 
 void PokerGame::determineWinner() {
-  std::cout << "\n--- Showdown ---" << std::endl;
+  gameIO().log("Showdown", LogKind::Section);
+  publishState();
 
   for (Pot &pot : potManager.pots) {
     if (pot.eligiblePlayers.size() == 1) {
@@ -393,57 +413,9 @@ void PokerGame::determineWinner() {
       }
     }
     pot.eligiblePlayers = winningPlayers;
-    std::cout << "Best hand was ";
-    Hand::Type bestType = currentBestHand.type;
-    printHandType(bestType);
-    std::cout << std::endl;
+    pot.winningHand = handTypeToString(currentBestHand.type);
   }
 
   potManager.payOutPots();
-  std::cout << std::endl;
-
-  std::cout << "Next round..." << std::endl;
-}
-
-void PokerGame::displayPots() {
-  std::cout << "║                ";
-  for (Pot pot : potManager.pots) {
-    if (pot.isMain) {
-      std::cout << "Main pot: " << pot.amount << "  ";
-    } else {
-      std::cout << "Side pot: " << pot.amount << "  ";
-    }
-  }
-  std::cout << std::endl;
-}
-
-void PokerGame::displayGameState() {
-  std::cout << "\n╔════════════════════════════════════════════╗\n";
-  std::cout << "║                POKER GAME STATE            ║\n";
-  std::cout << "╠════════════════════════════════════════════╣\n";
-  std::cout << "║                                            ║\n";
-  showTableCards();
-  displayPots();
-  std::cout << "║                                            ║\n";
-  std::cout << "╠════════════════════════════════════════════╣\n";
-  std::cout << "║                PLAYER STATUS               ║\n";
-  std::cout << "╠════════════════════════════════════════════╣\n";
-
-  for (size_t i = 0; i < activePlayers.size(); ++i) {
-    auto *player = activePlayers[i];
-    std::cout << "║ ";
-
-    if (player->hasFolded()) {
-      std::cout << std::left << std::setw(15) << player->getName() << "│ FOLDED"
-                << std::setw(19) << ""
-                << " ║\n";
-    } else {
-      std::cout << std::left << std::setw(15) << player->getName()
-                << "│ Bet: " << std::setw(4) << player->getRoundBet()
-                << " │ Chips: " << std::setw(6) << player->getChipCount()
-                << " ║\n";
-    }
-  }
-
-  std::cout << "╚════════════════════════════════════════════╝\n\n";
+  publishState();
 }

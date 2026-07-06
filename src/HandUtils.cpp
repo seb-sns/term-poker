@@ -2,8 +2,8 @@
 #include "Card.h"
 #include "Hand.h"
 #include "HandEvaluation.h"
-#include <iostream>
 #include <map>
+#include <string>
 #include <vector>
 
 std::vector<Card> getKickerCards(const std::vector<Card> &sevenCardHand,
@@ -61,42 +61,32 @@ bool isHigherKickerSecondary(const std::vector<Card> &a,
   return false;
 }
 
-void printHandType(Hand::Type &handType) {
+std::string handTypeToString(Hand::Type handType) {
   switch (handType) {
   case Hand::Type::None:
-    std::cout << "None";
-    break;
+    return "None";
   case Hand::Type::HighCard:
-    std::cout << "High Card";
-    break;
+    return "High Card";
   case Hand::Type::Pair:
-    std::cout << "Pair";
-    break;
+    return "Pair";
   case Hand::Type::TwoPair:
-    std::cout << "Two Pair";
-    break;
+    return "Two Pair";
   case Hand::Type::ThreeOfAKind:
-    std::cout << "Three of a Kind";
-    break;
+    return "Three of a Kind";
   case Hand::Type::Straight:
-    std::cout << "Straight";
-    break;
+    return "Straight";
   case Hand::Type::Flush:
-    std::cout << "Flush";
-    break;
+    return "Flush";
   case Hand::Type::FullHouse:
-    std::cout << "Full House";
-    break;
+    return "Full House";
   case Hand::Type::FourOfAKind:
-    std::cout << "Four of a Kind";
-    break;
+    return "Four of a Kind";
   case Hand::Type::StraightFlush:
-    std::cout << "Straight Flush";
-    break;
+    return "Straight Flush";
   case Hand::Type::RoyalFlush:
-    std::cout << "Royal Flush";
-    break;
+    return "Royal Flush";
   }
+  return "Unknown";
 }
 
 bool isEqualOrBetter(const HandEvaluation &handA, const HandEvaluation &handB) {

@@ -14,6 +14,8 @@ public:
   bool makeDecision() override;
   int placeBet(int currentBet) override;
 
+  std::string getStyle() const { return algorithm->getProfile().style; }
+
 private:
   std::unique_ptr<BotAlgorithm> algorithm;
   PokerGame &game;

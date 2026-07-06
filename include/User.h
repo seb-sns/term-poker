@@ -10,10 +10,6 @@ public:
   void takeTurn() override;
   bool makeDecision() override;
   int placeBet(int currentBet) override;
-
-private:
-  int getValidBet(int currentBet, int minBet);
-  void displayHand() const;
 };
 
 #endif

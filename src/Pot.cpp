@@ -1,7 +1,8 @@
 #include "Pot.h"
+#include "GameIO.h"
 #include "Player.h"
 
-#include <iostream>
+#include <string>
 
 void Pot::setRoundBeginAmount(int amount) { roundBeginAmount = amount; }
 
@@ -62,18 +63,21 @@ void PotManager::payOutPots() {
     int nWinners = static_cast<int>(pot.eligiblePlayers.size());
     int payout = pot.amount / nWinners;
     int remainder = pot.amount % nWinners;
-    std::cout << "Payout of " << payout << " goes to ";
+    // Odd chip goes to the first eligible player by set ordering.
+    bool firstWinner = true;
     for (Player *p : pot.eligiblePlayers) {
-      std::cout << p->getName() << " ";
-      p->addChips(payout);
+      int amount = payout + (firstWinner ? remainder : 0);
+      firstWinner = false;
+      p->addChips(amount);
+      std::string message = p->getName() + " wins " + std::to_string(amount);
+      if (!pot.winningHand.empty()) {
+        message += " with " + pot.winningHand;
+      }
+      if (!pot.isMain) {
+        message += " (side pot)";
+      }
+      gameIO().log(message, LogKind::Win);
     }
-    if (remainder > 0) {
-      // Odd chip goes to first eligible player by set ordering (lowest address).
-      Player *extra = *pot.eligiblePlayers.begin();
-      extra->addChips(remainder);
-      std::cout << "(+" << remainder << " to " << extra->getName() << ")";
-    }
-    std::cout << std::endl;
   }
 }
 

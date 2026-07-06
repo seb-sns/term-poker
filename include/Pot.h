@@ -11,6 +11,7 @@ public:
   int minBet = 0;
   int roundBeginAmount = 0;
   bool isMain;
+  std::string winningHand; // set at showdown, for payout messages
   std::set<Player *> eligiblePlayers;
 
   void setRoundBeginAmount(int amount);

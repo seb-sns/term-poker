@@ -1,6 +1,7 @@
 #ifndef POKERGAME_H
 #define POKERGAME_H
 
+#include "BotConfig.h"
 #include "Deck.h"
 #include "Player.h"
 #include "Pot.h"
@@ -24,6 +25,9 @@ public:
 
   static PokerGame *getInstance();
 
+  // Sets the bot lineup for the game; call before the first getInstance().
+  static void configureBots(const std::vector<BotSpec> &specs);
+
 private:
   static PokerGame *gameInstance;
   PokerGame();
@@ -36,6 +40,7 @@ private:
   int currentBet;
   int bigBlind;
   int smallBlind;
+  int handNumber = 0;
   Round currentRound;
 
   void initializePlayers();
@@ -43,9 +48,7 @@ private:
   void playBettingRound();
   void dealTableCards(int count);
   void resetForNextHand();
-  void showTableCards();
-  void displayPots();
-  void displayGameState();
+  void publishState(const Player *acting = nullptr);
 
   bool handlePlayerAction(Player *player, int playerIndex, int playersActed);
   int getPlayerBet(Player *player);
