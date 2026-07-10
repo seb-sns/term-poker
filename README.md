@@ -60,6 +60,7 @@ For the original plain-console experience:
   <b>Fold</b>/<b>Check</b>, <b>Call</b>, a <b>Raise</b> slider and
   <b>All in</b> buttons.<br>
   Navigate with the mouse, or with Tab/arrow keys and Enter. Press
+  <b>space</b> to pause, <b>-</b>/<b>+</b> to change the game speed,
   <b>t</b> to switch theme and <b>q</b> to quit at any time.<br>
 
   In classic mode you type your bet instead: 0 folds (or checks when there is
