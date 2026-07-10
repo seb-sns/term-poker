@@ -2,6 +2,7 @@
 #include "Card.h"
 #include "Hand.h"
 #include "HandEvaluation.h"
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -25,30 +26,17 @@ std::vector<Card> getKickerCards(const std::vector<Card> &sevenCardHand,
     }
   }
 
+  // sevenCardHand is sorted ascending; kickers are the highest remaining
+  // cards, ordered highest first to match primary card ordering.
   std::size_t slots = std::min(remainingCardSlots, remainingCards.size());
-  return std::vector<Card>(remainingCards.begin(),
-                           remainingCards.begin() + slots);
+  return std::vector<Card>(remainingCards.rbegin(),
+                           remainingCards.rbegin() + slots);
 }
 
-bool isHigherKickerPrimary(const std::vector<Card> &a,
-                           const std::vector<Card> &b) {
-  for (int i = a.size() - 1; i >= 0; --i) {
-    int aRank = static_cast<int>(a[i].getRank());
-    int bRank = static_cast<int>(b[i].getRank());
-    if (aRank > bRank) {
-      return true;
-    }
-    if (aRank < bRank) {
-      return false;
-    }
-  }
-  return false;
-}
-
-bool isHigherKickerSecondary(const std::vector<Card> &a,
-                             const std::vector<Card> &b) {
-
-  for (int i = a.size() - 1; i >= 0; --i) {
+// Cards are ordered most significant first, so compare front to back.
+bool isHigherKicker(const std::vector<Card> &a, const std::vector<Card> &b) {
+  std::size_t n = std::min(a.size(), b.size());
+  for (std::size_t i = 0; i < n; ++i) {
     int aRank = static_cast<int>(a[i].getRank());
     int bRank = static_cast<int>(b[i].getRank());
     if (aRank > bRank) {
@@ -97,13 +85,18 @@ bool isEqualOrBetter(const HandEvaluation &handA, const HandEvaluation &handB) {
     return false;
   }
 
-  if (isHigherKickerPrimary(handA.primaryCards, handB.primaryCards)) {
+  if (isHigherKicker(handA.primaryCards, handB.primaryCards)) {
     return true;
   }
-  if (isHigherKickerPrimary(handB.primaryCards, handA.primaryCards)) {
+  if (isHigherKicker(handB.primaryCards, handA.primaryCards)) {
     return false;
   }
-  // Primary cards are equal; compare secondary kickers.
-  return isHigherKickerSecondary(handA.secondaryCards, handB.secondaryCards) ||
-         (handA.secondaryCards == handB.secondaryCards);
+  // Primary cards are equal; compare secondary kickers by rank.
+  if (isHigherKicker(handA.secondaryCards, handB.secondaryCards)) {
+    return true;
+  }
+  if (isHigherKicker(handB.secondaryCards, handA.secondaryCards)) {
+    return false;
+  }
+  return true; // identical hands (suits never break ties)
 }

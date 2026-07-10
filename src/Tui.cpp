@@ -18,7 +18,11 @@ using namespace ftxui;
 
 namespace {
 
-constexpr int kBotActionDelayMs = 350;
+// Game pacing levels, selectable at runtime with -/+.
+constexpr int kSpeedDelaysMs[] = {900, 350, 120, 0};
+constexpr const char *kSpeedNames[] = {"slow", "normal", "fast", "turbo"};
+constexpr int kSpeedLevels = 4;
+
 constexpr size_t kMaxLogLines = 200;
 
 struct Theme {
@@ -225,8 +229,33 @@ void TuiIO::log(const std::string &message, LogKind kind) {
     }
   }
   postRedraw();
-  // Pace the game so bot actions appear one at a time instead of all at once.
-  std::this_thread::sleep_for(std::chrono::milliseconds(kBotActionDelayMs));
+  // Pace the game so bot actions appear one at a time instead of all at
+  // once; pausing holds the engine thread here between actions.
+  std::unique_lock<std::mutex> lock(mtx);
+  int delay = kSpeedDelaysMs[speedIndex];
+  if (delay > 0) {
+    cvPace.wait_for(lock, std::chrono::milliseconds(delay),
+                    [this] { return paused; });
+  }
+  cvPace.wait(lock, [this] { return !paused; });
+}
+
+void TuiIO::togglePause() {
+  {
+    std::lock_guard<std::mutex> lock(mtx);
+    paused = !paused;
+  }
+  cvPace.notify_all();
+  postRedraw();
+}
+
+void TuiIO::adjustSpeed(int delta) {
+  {
+    std::lock_guard<std::mutex> lock(mtx);
+    speedIndex = std::clamp(speedIndex + delta, 0, kSpeedLevels - 1);
+  }
+  cvPace.notify_all();
+  postRedraw();
 }
 
 void TuiIO::updateState(const GameSnapshot &newSnapshot) {
@@ -371,6 +400,9 @@ void TuiIO::run() {
     const Theme &t = themes()[themeIndex];
 
     // --- Header ---
+    Element pauseBadge =
+        paused ? text(" ⏸ PAUSED ") | bold | color(t.alert)
+               : text(std::string(" ") + kSpeedNames[speedIndex] + " ") | dim;
     Element header =
         hbox({
             text(" ♠ ") | color(t.accent),
@@ -382,7 +414,10 @@ void TuiIO::run() {
             text(snapshot.roundName.empty() ? "Starting..."
                                             : snapshot.roundName) |
                 bold | color(t.accent),
-            text("  ·  " + t.name + "  ·  t theme  ·  q quit ") | dim,
+            text("  · ") | dim,
+            pauseBadge,
+            text(" ·  space pause  ·  -/+ speed  ·  t theme  ·  q quit ") |
+                dim,
         }) |
         border;
 
@@ -568,6 +603,19 @@ void TuiIO::run() {
     }
     if (event == Event::Character('t') || event == Event::Character('T')) {
       themeIndex = (themeIndex + 1) % static_cast<int>(themes().size());
+      return true;
+    }
+    if (event == Event::Character(' ') || event == Event::Character('p') ||
+        event == Event::Character('P')) {
+      togglePause();
+      return true;
+    }
+    if (event == Event::Character('+') || event == Event::Character('=')) {
+      adjustSpeed(+1);
+      return true;
+    }
+    if (event == Event::Character('-') || event == Event::Character('_')) {
+      adjustSpeed(-1);
       return true;
     }
     return false;

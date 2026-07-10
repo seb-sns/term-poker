@@ -18,11 +18,11 @@ namespace {
 double roundFactor(PokerGame::Round round) {
   switch (round) {
   case PokerGame::Round::preflop:
-    return 1.4;
+    return 1.15;
   case PokerGame::Round::flop:
-    return 1.2;
+    return 1.08;
   case PokerGame::Round::turn:
-    return 1.1;
+    return 1.03;
   default:
     return 1.0;
   }
@@ -48,6 +48,7 @@ double BotAlgorithm::chance() {
 bool BotAlgorithm::makeDecision(const PokerGame &game, const Player &bot) {
   handStrength = evaluateStrength(game, bot);
   bluffing = false;
+  cheapCall = false;
 
   if (handStrength >= profile.tightness) {
     return true;
@@ -57,31 +58,41 @@ bool BotAlgorithm::makeDecision(const PokerGame &game, const Player &bot) {
     bluffing = true;
     return true;
   }
+  // Completing the small blind or matching a min-bet is almost always
+  // worth the pot odds; just call, never raise.
+  int minBet = std::max(0, game.getCurrentBet() - bot.getRoundBet());
+  if (minBet <= game.getBigBlind()) {
+    cheapCall = true;
+    return true;
+  }
   return false;
 }
 
 int BotAlgorithm::calculateBet(const PokerGame &game, const Player &bot) {
   int minBet = std::max(0, game.getCurrentBet() - bot.getRoundBet());
+  if (cheapCall) {
+    return minBet;
+  }
   int pot = std::max(totalPot(game), 2 * game.getBigBlind());
 
   // How far above the fold threshold the hand is; a bluff pretends to have
   // a moderately strong hand.
   double margin = bluffing
-                      ? 0.6
+                      ? 0.45
                       : std::min(handStrength - profile.tightness, 1.5);
 
-  double raiseChance = profile.aggression * (0.35 + 0.45 * margin);
+  double raiseChance = profile.aggression * (0.18 + 0.35 * margin);
   if (chance() >= raiseChance) {
     return minBet; // call, or check when there is nothing to match
   }
 
-  double potFraction = 0.35 + 0.65 * profile.aggression * margin;
+  double potFraction = 0.30 + 0.45 * profile.aggression * margin;
   if (bluffing) {
-    potFraction = std::min(potFraction, 0.75);
+    potFraction = std::min(potFraction, 0.55);
   }
   int extra = std::max(game.getBigBlind(),
                        static_cast<int>(pot * potFraction));
-  extra = std::min(extra, pot * 5 / 2);
+  extra = std::min(extra, pot); // never overbet more than the pot
 
   int bet = minBet + extra;
   bet -= bet % 5;

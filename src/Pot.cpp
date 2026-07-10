@@ -2,62 +2,58 @@
 #include "GameIO.h"
 #include "Player.h"
 
+#include <algorithm>
 #include <string>
-
-void Pot::setRoundBeginAmount(int amount) { roundBeginAmount = amount; }
-
-void Pot::setEligibilePlayers(std::set<Player *> players) {
-  eligiblePlayers = players;
-}
 
 void PotManager::createMainPot(std::set<Player *> eligiblePlayers) {
   pots.emplace_back(Pot(0, eligiblePlayers, true));
 }
 
-void PotManager::createSidePot(Player *player, Pot &mainPot, int playersActed) {
-  int roundBet = player->getRoundBet();
-  int sidePotAmount = mainPot.roundBeginAmount + (playersActed + 1) * roundBet;
-  mainPot.amount -= sidePotAmount;
-  pots.emplace_back(Pot(sidePotAmount, mainPot.eligiblePlayers, false));
-  pots[pots.size() - 1].minBet = roundBet;
-  mainPot.eligiblePlayers.erase(player);
-}
-
-void PotManager::addToSidePot(int playerBet, int index) {
-  pots[index].amount += playerBet;
-}
-
-int PotManager::determineNewSidePot(const Player *player) {
-  int i = 1;
-  for (const Pot &pot : pots) {
-    if (pot.isMain) {
-      continue;
-    }
-    if (pot.minBet == player->getRoundBet()) {
-      return i;
-    }
-    ++i;
+void PotManager::buildShowdownPots(const std::vector<Player *> &handPlayers) {
+  int totalContributed = 0;
+  for (const Player *p : handPlayers) {
+    totalContributed += p->getTotalBet();
   }
-  return 0;
-}
 
-int PotManager::findNewPotSplitLocation(const Player *player) {
-  int i = 1;
-  for (const Pot &pot : pots) {
-    if (pot.isMain) {
-      continue;
+  // Every distinct amount a live player has put in caps one pot layer;
+  // players who contributed at least that much are eligible for the layer.
+  std::set<int> levels;
+  for (const Player *p : handPlayers) {
+    if (!p->hasFolded() && p->getTotalBet() > 0) {
+      levels.insert(p->getTotalBet());
     }
-    if (pot.minBet < player->getRoundBet()) {
-      return i - 1;
-    }
-    ++i;
   }
-  return i - 1;
+
+  pots.clear();
+  int previousLevel = 0;
+  for (int level : levels) {
+    Pot pot(0, {}, pots.empty());
+    for (Player *p : handPlayers) {
+      pot.amount +=
+          std::max(0, std::min(p->getTotalBet(), level) - previousLevel);
+      if (!p->hasFolded() && p->getTotalBet() >= level) {
+        pot.eligiblePlayers.insert(p);
+      }
+    }
+    pots.push_back(std::move(pot));
+    previousLevel = level;
+  }
+
+  // Defensive: a folded player should never have contributed more than the
+  // highest live stake, but if it happens the excess stays in the last pot
+  // so no chips leak.
+  int distributed = 0;
+  for (const Pot &pot : pots) {
+    distributed += pot.amount;
+  }
+  if (!pots.empty()) {
+    pots.back().amount += totalContributed - distributed;
+  }
 }
 
 void PotManager::payOutPots() {
-  for (const Pot &pot : pots) {
-    if (pot.eligiblePlayers.empty()) {
+  for (Pot &pot : pots) {
+    if (pot.eligiblePlayers.empty() || pot.amount <= 0) {
       continue;
     }
     int nWinners = static_cast<int>(pot.eligiblePlayers.size());
@@ -78,14 +74,7 @@ void PotManager::payOutPots() {
       }
       gameIO().log(message, LogKind::Win);
     }
-  }
-}
-
-void PotManager::adjustWinners(std::set<Player *> losingPlayers) {
-  for (Player *p : losingPlayers) {
-    for (Pot &pot : pots) {
-      pot.eligiblePlayers.erase(p);
-    }
+    pot.amount = 0;
   }
 }
 

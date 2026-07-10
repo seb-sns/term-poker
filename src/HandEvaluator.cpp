@@ -8,6 +8,48 @@
 #include <unordered_map>
 #include <vector>
 
+namespace {
+
+// Rank -> one representative card, with an ace also mapped to 1 so that
+// wheel straights (A-2-3-4-5) are found.
+std::map<int, Card> buildRankMap(const std::vector<Card> &cards) {
+  std::map<int, Card> rankToCard;
+  for (const auto &card : cards) {
+    int rank = static_cast<int>(card.getRank());
+    if (rankToCard.count(rank) == 0) {
+      rankToCard[rank] = card;
+    }
+  }
+  if (rankToCard.count(static_cast<int>(Card::Rank::Ace))) {
+    rankToCard[1] = rankToCard[static_cast<int>(Card::Rank::Ace)];
+  }
+  return rankToCard;
+}
+
+// The five cards of the highest straight in the map, ordered highest first,
+// or an empty vector if there is no straight.
+std::vector<Card> bestStraightRun(const std::map<int, Card> &rankToCard) {
+  std::vector<Card> run;
+  std::vector<Card> best;
+
+  int prevKey = -2; // the ace-low entry sits at key 1, so track map keys
+  for (const auto &[key, card] : rankToCard) {
+    if (key - prevKey != 1) {
+      run.clear();
+    }
+    run.push_back(card);
+    prevKey = key;
+    if (run.size() >= 5) {
+      // Ranks ascend through the map, so a later window is always higher.
+      best = std::vector<Card>(run.end() - 5, run.end());
+    }
+  }
+  std::reverse(best.begin(), best.end());
+  return best;
+}
+
+} // namespace
+
 HandEvaluator::HandEvaluator(const std::vector<Card> &tableCards,
                              const std::vector<Card> &playerHoleCards) {
   sevenCardHand.reserve(7);
@@ -19,12 +61,17 @@ HandEvaluator::HandEvaluator(const std::vector<Card> &tableCards,
   std::sort(sevenCardHand.begin(), sevenCardHand.end());
 };
 
-HandEvaluation HandEvaluator::isPair() {
+// "Not this hand" result: a plain high-card evaluation built from the top
+// available cards. Safe for hands with fewer than five cards.
+HandEvaluation HandEvaluator::highCardFallback() {
+  return HandEvaluation{Hand::Type::HighCard, std::vector<Card>{},
+                        getKickerCards(sevenCardHand, std::vector<Card>{})};
+}
 
+HandEvaluation HandEvaluator::isPair() {
   std::vector<Card> matchingCards;
   matchingCards.reserve(2);
-  std::vector<Card> unmatchedCards;
-  unmatchedCards.reserve(5);
+
   for (int i = sevenCardHand.size() - 1; i >= 1; --i) {
     if (static_cast<int>(sevenCardHand.at(i).getRank()) ==
         static_cast<int>(sevenCardHand.at(i - 1).getRank())) {
@@ -32,13 +79,11 @@ HandEvaluation HandEvaluator::isPair() {
       matchingCards.push_back(sevenCardHand.at(i));
       matchingCards.push_back(sevenCardHand.at(i - 1));
 
-      unmatchedCards = getKickerCards(sevenCardHand, matchingCards);
-      return HandEvaluation{Hand::Type::Pair, matchingCards, unmatchedCards};
+      return HandEvaluation{Hand::Type::Pair, matchingCards,
+                            getKickerCards(sevenCardHand, matchingCards)};
     }
   }
-
-  unmatchedCards = getKickerCards(sevenCardHand, matchingCards);
-  return HandEvaluation{Hand::Type::HighCard, matchingCards, unmatchedCards};
+  return highCardFallback();
 }
 
 HandEvaluation HandEvaluator::isTwoPair() {
@@ -46,9 +91,6 @@ HandEvaluation HandEvaluator::isTwoPair() {
 
   std::vector<Card> matchingCards;
   matchingCards.reserve(4);
-
-  std::vector<Card> unmatchedCards;
-  unmatchedCards.reserve(5);
 
   for (int i = sevenCardHand.size() - 1; i >= 1; --i) {
     if (static_cast<int>(sevenCardHand.at(i).getRank()) ==
@@ -59,23 +101,18 @@ HandEvaluation HandEvaluator::isTwoPair() {
       count++;
       i--; // Skip overlapping pairs
       if (count == 2) {
-
-        unmatchedCards = getKickerCards(sevenCardHand, matchingCards);
         return HandEvaluation{Hand::Type::TwoPair, matchingCards,
-                              unmatchedCards};
+                              getKickerCards(sevenCardHand, matchingCards)};
       }
     }
   }
-  unmatchedCards = getKickerCards(sevenCardHand, matchingCards);
-  return HandEvaluation{Hand::Type::HighCard, matchingCards, unmatchedCards};
+  return highCardFallback();
 }
 
 HandEvaluation HandEvaluator::isThreeOfAKind() {
   std::vector<Card> matchingCards;
   matchingCards.reserve(3);
 
-  std::vector<Card> unmatchedCards;
-  unmatchedCards.reserve(5);
   for (int i = sevenCardHand.size() - 1; i >= 2; --i) {
     if (static_cast<int>(sevenCardHand.at(i).getRank()) ==
             static_cast<int>(sevenCardHand.at(i - 1).getRank()) &&
@@ -86,65 +123,24 @@ HandEvaluation HandEvaluator::isThreeOfAKind() {
       matchingCards.push_back(sevenCardHand.at(i - 1));
       matchingCards.push_back(sevenCardHand.at(i - 2));
 
-      unmatchedCards = getKickerCards(sevenCardHand, matchingCards);
       return HandEvaluation{Hand::Type::ThreeOfAKind, matchingCards,
-                            unmatchedCards};
+                            getKickerCards(sevenCardHand, matchingCards)};
     }
   }
-  unmatchedCards = getKickerCards(sevenCardHand, matchingCards);
-  return HandEvaluation{Hand::Type::HighCard, matchingCards, unmatchedCards};
+  return highCardFallback();
 }
 
 HandEvaluation HandEvaluator::isStraight() {
-  std::map<int, Card> rankToCard;
-
-  for (const auto &card : sevenCardHand) {
-    int rank = static_cast<int>(card.getRank());
-    if (rankToCard.count(rank) == 0) {
-      rankToCard[rank] = card;
-    }
+  std::vector<Card> matchingCards = bestStraightRun(buildRankMap(sevenCardHand));
+  if (matchingCards.empty()) {
+    return highCardFallback();
   }
-
-  if (rankToCard.count(static_cast<int>(Card::Rank::Ace))) {
-    rankToCard[1] = rankToCard[static_cast<int>(Card::Rank::Ace)];
-  }
-
-  int count{1};
-  std::map<int, Card>::iterator prev = rankToCard.begin();
-  std::map<int, Card>::iterator curr = std::next(prev);
-
-  std::vector<Card> matchingCards;
-  matchingCards.reserve(5);
-
-  std::vector<Card> unmatchedCards;
-  unmatchedCards.reserve(5);
-  for (; curr != rankToCard.end(); ++curr, ++prev) {
-    if ((curr->first - prev->first) == 1) {
-      if (count == 1) {
-        matchingCards.push_back(prev->second);
-      }
-      matchingCards.push_back(curr->second);
-      ++count;
-    } else {
-      count = 1;
-      matchingCards.clear();
-    }
-
-    if (count == 5) {
-      unmatchedCards = getKickerCards(sevenCardHand, matchingCards);
-      return HandEvaluation{Hand::Type::Straight, matchingCards,
-                            unmatchedCards};
-    }
-  }
-  matchingCards = std::vector(sevenCardHand.end() - 5, sevenCardHand.end());
-  return HandEvaluation{Hand::Type::HighCard, matchingCards,
+  return HandEvaluation{Hand::Type::Straight, matchingCards,
                         std::vector<Card>{}};
 }
 
 HandEvaluation HandEvaluator::isFlush() {
   std::unordered_map<Card::Suit, std::vector<Card>> suitMap;
-  std::vector<Card> matchingCards;
-  matchingCards.reserve(5);
 
   for (const auto &card : sevenCardHand) {
     suitMap[card.getSuit()].push_back(card);
@@ -152,53 +148,50 @@ HandEvaluation HandEvaluator::isFlush() {
 
   for (const auto &[suit, cards] : suitMap) {
     if (cards.size() >= 5) {
-      matchingCards = std::vector(cards.end() - 5, cards.end());
+      // Suited cards keep the ascending sort; take the top five, highest
+      // first.
+      std::vector<Card> matchingCards(cards.rbegin(), cards.rbegin() + 5);
       return HandEvaluation{Hand::Type::Flush, matchingCards,
                             std::vector<Card>{}};
     }
   }
-  matchingCards = std::vector(sevenCardHand.end() - 5, sevenCardHand.end());
-  return HandEvaluation{Hand::Type::HighCard, matchingCards,
-                        std::vector<Card>{}};
+  return highCardFallback();
 }
 
 HandEvaluation HandEvaluator::isFullHouse() {
   HandEvaluation twoPair{isTwoPair()};
   HandEvaluation threeOfAKind{isThreeOfAKind()};
 
+  if (twoPair.type != Hand::Type::TwoPair ||
+      threeOfAKind.type != Hand::Type::ThreeOfAKind) {
+    return highCardFallback();
+  }
+
   std::vector<Card> matchingCards;
   matchingCards.reserve(5);
+  matchingCards.insert(matchingCards.end(), threeOfAKind.primaryCards.begin(),
+                       threeOfAKind.primaryCards.end());
 
-  if (twoPair.type == Hand::Type::TwoPair &&
-      threeOfAKind.type == Hand::Type::ThreeOfAKind) {
-
-    matchingCards.insert(matchingCards.end(), threeOfAKind.primaryCards.begin(),
-                         threeOfAKind.primaryCards.end());
-
-    std::vector<Card> remainingPairs =
-        getKickerCards(twoPair.primaryCards, threeOfAKind.primaryCards);
-
-    matchingCards.insert(matchingCards.end(), remainingPairs.begin(),
-                         remainingPairs.begin() + 2);
-
-    return HandEvaluation{Hand::Type::FullHouse, matchingCards,
-                          std::vector<Card>{}};
-
-  } else {
-    std::vector<Card> matchingCards =
-        std::vector(sevenCardHand.end() - 5, sevenCardHand.end());
-
-    return HandEvaluation{Hand::Type::HighCard, matchingCards,
-                          std::vector<Card>{}};
+  // The best pair is the highest pair that is not the trips; the two-pair
+  // cards are ordered high pair first.
+  Card::Rank tripsRank = threeOfAKind.primaryCards.front().getRank();
+  for (const Card &card : twoPair.primaryCards) {
+    if (card.getRank() != tripsRank &&
+        matchingCards.size() < 5) {
+      matchingCards.push_back(card);
+    }
   }
+  if (matchingCards.size() < 5) {
+    return highCardFallback();
+  }
+
+  return HandEvaluation{Hand::Type::FullHouse, matchingCards,
+                        std::vector<Card>{}};
 }
 
 HandEvaluation HandEvaluator::isFourOfAKind() {
   std::vector<Card> matchingCards;
   matchingCards.reserve(4);
-
-  std::vector<Card> unmatchedCards;
-  unmatchedCards.reserve(1);
 
   for (int i = sevenCardHand.size() - 1; i >= 3; --i) {
     if (static_cast<int>(sevenCardHand.at(i).getRank()) ==
@@ -213,14 +206,11 @@ HandEvaluation HandEvaluator::isFourOfAKind() {
       matchingCards.push_back(sevenCardHand.at(i - 2));
       matchingCards.push_back(sevenCardHand.at(i - 3));
 
-      unmatchedCards = getKickerCards(sevenCardHand, matchingCards);
       return HandEvaluation{Hand::Type::FourOfAKind, matchingCards,
-                            unmatchedCards};
+                            getKickerCards(sevenCardHand, matchingCards)};
     }
   }
-  matchingCards = std::vector(sevenCardHand.end() - 5, sevenCardHand.end());
-  return HandEvaluation{Hand::Type::HighCard, matchingCards,
-                        std::vector<Card>{}};
+  return highCardFallback();
 }
 
 HandEvaluation HandEvaluator::isStraightFlush() {
@@ -233,71 +223,27 @@ HandEvaluation HandEvaluator::isStraightFlush() {
     if (cards.size() < 5) {
       continue;
     }
-
-    std::map<int, Card> rankToCard;
-    for (const auto &card : cards) {
-      int rank = static_cast<int>(card.getRank());
-      if (rankToCard.count(rank) == 0) {
-        rankToCard[rank] = card;
-      }
-    }
-    if (rankToCard.count(static_cast<int>(Card::Rank::Ace))) {
-      rankToCard[1] = rankToCard[static_cast<int>(Card::Rank::Ace)];
-    }
-
-    int count{1};
-    std::vector<Card> matchingCards;
-    matchingCards.reserve(5);
-    auto prev = rankToCard.begin();
-    auto curr = std::next(prev);
-    for (; curr != rankToCard.end(); ++curr, ++prev) {
-      if ((curr->first - prev->first) == 1) {
-        if (count == 1) {
-          matchingCards.push_back(prev->second);
-        }
-        matchingCards.push_back(curr->second);
-        ++count;
-      } else {
-        count = 1;
-        matchingCards.clear();
-      }
-      if (count == 5) {
-        return HandEvaluation{Hand::Type::StraightFlush, matchingCards,
-                              std::vector<Card>{}};
-      }
+    std::vector<Card> matchingCards = bestStraightRun(buildRankMap(cards));
+    if (!matchingCards.empty()) {
+      return HandEvaluation{Hand::Type::StraightFlush, matchingCards,
+                            std::vector<Card>{}};
     }
   }
-
-  std::vector<Card> matchingCards{
-      std::vector(sevenCardHand.end() - 5, sevenCardHand.end())};
-  return HandEvaluation{Hand::Type::HighCard, matchingCards,
-                        std::vector<Card>{}};
+  return highCardFallback();
 }
 
 HandEvaluation HandEvaluator::isRoyalFlush() {
   HandEvaluation straightFlush{isStraightFlush()};
   if (straightFlush.type != Hand::Type::StraightFlush) {
-    std::vector<Card> matchingCards{
-        std::vector(sevenCardHand.end() - 5, sevenCardHand.end())};
-    return HandEvaluation{Hand::Type::HighCard, matchingCards,
-                          std::vector<Card>{}};
+    return highCardFallback();
   }
-  bool foundAce{false};
-  bool foundKing{false};
-
-  for (const auto &card : straightFlush.primaryCards) {
-    if (card.getRank() == Card::Rank::Ace)
-      foundAce = true;
-    if (card.getRank() == Card::Rank::King)
-      foundKing = true;
-
-    if (foundAce && foundKing) {
-      return HandEvaluation{Hand::Type::RoyalFlush, straightFlush.primaryCards,
-                            straightFlush.secondaryCards};
-    }
+  // An ace-high straight flush is royal; cards are ordered highest first
+  // (a wheel leads with the five, so it never matches).
+  if (straightFlush.primaryCards.front().getRank() == Card::Rank::Ace) {
+    return HandEvaluation{Hand::Type::RoyalFlush, straightFlush.primaryCards,
+                          straightFlush.secondaryCards};
   }
-  return HandEvaluation{Hand::Type::StraightFlush, straightFlush.primaryCards,
-                        straightFlush.secondaryCards};
+  return straightFlush;
 }
 
 HandEvaluation HandEvaluator::evaluateHand() {

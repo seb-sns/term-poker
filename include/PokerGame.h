@@ -17,7 +17,7 @@ public:
 
   std::vector<Card> getTableCards() const { return tableCards; }
   Round getRound() const { return currentRound; }
-  PotManager getPot() const { return potManager; }
+  const PotManager &getPot() const { return potManager; }
   int getBigBlind() const { return bigBlind; }
   int getSmallBlind() const { return smallBlind; }
   int getCurrentBet() const { return currentBet; }
@@ -27,6 +27,9 @@ public:
 
   // Sets the bot lineup for the game; call before the first getInstance().
   static void configureBots(const std::vector<BotSpec> &specs);
+
+  // Destroys the current game so a fresh one can be created (for tests).
+  static void resetInstance();
 
 private:
   static PokerGame *gameInstance;
@@ -50,7 +53,7 @@ private:
   void resetForNextHand();
   void publishState(const Player *acting = nullptr);
 
-  bool handlePlayerAction(Player *player, int playerIndex, int playersActed);
+  bool handlePlayerAction(Player *player);
   int getPlayerBet(Player *player);
   void advanceRound();
   void collectBlinds();

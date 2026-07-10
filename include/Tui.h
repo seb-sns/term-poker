@@ -32,6 +32,8 @@ public:
 private:
   enum class Action { Fold, Call, Raise, AllIn };
   void submitAction(Action action);
+  void togglePause();
+  void adjustSpeed(int delta);
   void postRedraw();
 
   std::mutex mtx;
@@ -53,6 +55,11 @@ private:
   std::function<void()> resetFocus;
 
   int themeIndex = 0;
+
+  // Game pacing: the engine thread waits in log() on cvPace while paused.
+  std::condition_variable cvPace;
+  bool paused = false;
+  int speedIndex = 1;
 
   // UI widget state
   int raiseAmount = 0;

@@ -17,12 +17,12 @@ struct StyleDef {
 
 const std::map<std::string, StyleDef> &styles() {
   static const std::map<std::string, StyleDef> all = {
-      {"balanced", {BotEvaluator::MonteCarlo, 1.00, 0.50, 0.10}},
-      {"shark", {BotEvaluator::MonteCarlo, 1.15, 0.80, 0.18}},
-      {"rock", {BotEvaluator::MonteCarlo, 1.50, 0.25, 0.03}},
-      {"maniac", {BotEvaluator::MonteCarlo, 0.45, 0.90, 0.35}},
+      {"balanced", {BotEvaluator::MonteCarlo, 1.00, 0.40, 0.07}},
+      {"shark", {BotEvaluator::MonteCarlo, 1.15, 0.60, 0.12}},
+      {"rock", {BotEvaluator::MonteCarlo, 1.50, 0.20, 0.03}},
+      {"maniac", {BotEvaluator::MonteCarlo, 0.55, 0.75, 0.22}},
       {"caller", {BotEvaluator::Basic, 0.50, 0.08, 0.02}},
-      {"fish", {BotEvaluator::Basic, 0.70, 0.35, 0.12}},
+      {"fish", {BotEvaluator::Basic, 0.70, 0.28, 0.09}},
   };
   return all;
 }

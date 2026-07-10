@@ -34,6 +34,7 @@ private:
   BotProfile profile;
   double handStrength = 0.0;
   bool bluffing = false;
+  bool cheapCall = false;
   std::mt19937 rng;
 };
 

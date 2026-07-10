@@ -25,6 +25,8 @@ public:
   HandEvaluation isStraightFlush();
   HandEvaluation isRoyalFlush();
 
+  HandEvaluation highCardFallback();
+
   HandEvaluation evaluateHand();
 };
 

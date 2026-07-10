@@ -33,6 +33,11 @@ PokerGame *PokerGame::getInstance() {
   return gameInstance;
 }
 
+void PokerGame::resetInstance() {
+  delete gameInstance;
+  gameInstance = nullptr;
+}
+
 PokerGame::PokerGame()
     : currentBet(0), bigBlind(20), smallBlind(10),
       currentRound(Round::preflop) {
@@ -70,9 +75,20 @@ std::string roundToString(PokerGame::Round round) {
 } // namespace
 
 void PokerGame::playGame() {
+  constexpr int handsPerBlindLevel = 12;
+
   gameIO().log("Texas Hold'em", LogKind::Section);
   while (players.size() >= 2) {
     ++handNumber;
+    if (handNumber > 1 && handNumber % handsPerBlindLevel == 1) {
+      // Tournament-style escalation keeps late heads-up play from
+      // stalling forever on tiny blinds.
+      smallBlind *= 2;
+      bigBlind *= 2;
+      gameIO().log("Blinds up: " + std::to_string(smallBlind) + "/" +
+                       std::to_string(bigBlind),
+                   LogKind::Alert);
+    }
     gameIO().log("Hand #" + std::to_string(handNumber), LogKind::Section);
     resetForNextHand();
     if (players.size() < 2) {
@@ -195,11 +211,13 @@ void PokerGame::collectBlinds() {
 
   activePlayers[0]->addChips(-smallBlindPosted);
   activePlayers[0]->adjustRoundBet(smallBlindPosted);
+  activePlayers[0]->adjustTotalBet(smallBlindPosted);
   if (activePlayers[0]->getChipCount() == 0) {
     activePlayers[0]->setAllIn(true);
   }
   activePlayers[1]->addChips(-bigBlindPosted);
   activePlayers[1]->adjustRoundBet(bigBlindPosted);
+  activePlayers[1]->adjustTotalBet(bigBlindPosted);
   if (activePlayers[1]->getChipCount() == 0) {
     activePlayers[1]->setAllIn(true);
   }
@@ -247,7 +265,7 @@ void PokerGame::playBettingRound() {
     }
 
     else if (!player->hasFolded() && !hasActed[currentPlayer]) {
-      if (handlePlayerAction(player, currentPlayer, playersActed)) {
+      if (handlePlayerAction(player)) {
         hasActed[currentPlayer] = true;
         playersActed++;
       } else {
@@ -267,73 +285,45 @@ void PokerGame::playBettingRound() {
   }
 }
 
-bool PokerGame::handlePlayerAction(Player *player, int /*playerIndex*/,
-                                   int playersActed) {
+bool PokerGame::handlePlayerAction(Player *player) {
   if (dynamic_cast<User *>(player)) {
     publishState(player);
   }
 
   int minBet{currentBet - player->getRoundBet()};
-  int playerBet{getPlayerBet(player)};
+  int playerBet{std::min(getPlayerBet(player), player->getChipCount())};
   if (playerBet == 0 && minBet > 0) {
     player->setFolded(true);
     potManager.foldPlayer(player);
     gameIO().log(player->getName() + " folds");
     return true;
-  } else if (playerBet == 0) {
+  }
+  if (playerBet == 0) {
     gameIO().log(player->getName() + " checks");
     return true;
-  } else if (playerBet > 0 && (player->isAllIn())) {
-    gameIO().log(player->getName() + " is all in", LogKind::Alert);
-    player->adjustRoundBet(playerBet);
-    player->adjustTotalBet(playerBet);
-    player->addChips(-playerBet);
-    int bet{player->getRoundBet()};
-
-    if (minBet > bet) {
-      if (potManager.pots.size() == 1) {
-        potManager.addToMainPot(playerBet);
-        potManager.createSidePot(player, potManager.pots[0], playersActed);
-        return true;
-      }
-      int index = potManager.determineNewSidePot(player);
-      if (!(index == 0)) {
-        potManager.pots[index].amount += playerBet;
-        potManager.addToSidePot(playerBet, index);
-        return true;
-      }
-      index = potManager.findNewPotSplitLocation(player);
-      potManager.pots[index].amount += playerBet;
-      potManager.createSidePot(player, potManager.pots[index], playersActed);
-      return true;
-    } else if (bet > currentBet) {
-      potManager.addToMainPot(playerBet);
-      currentBet = bet;
-      gameIO().log(player->getName() + " raises to " + std::to_string(bet));
-      return false;
-    } else {
-      potManager.addToMainPot(playerBet);
-      gameIO().log(player->getName() + " calls " + std::to_string(bet));
-      return true;
-    }
-
-  } else {
-    player->adjustRoundBet(playerBet);
-    player->adjustTotalBet(playerBet);
-    player->addChips(-playerBet);
-    potManager.addToMainPot(playerBet);
-
-    int bet{player->getRoundBet()};
-
-    if (bet > currentBet) {
-      currentBet = bet;
-      gameIO().log(player->getName() + " raises to " + std::to_string(bet));
-      return false;
-    } else {
-      gameIO().log(player->getName() + " calls " + std::to_string(bet));
-      return true;
-    }
   }
+
+  // Chips move straight into the pot; side pots are settled at showdown
+  // from each player's total contribution.
+  player->adjustRoundBet(playerBet);
+  player->adjustTotalBet(playerBet);
+  player->addChips(-playerBet);
+  potManager.addToMainPot(playerBet);
+  if (player->getChipCount() == 0) {
+    player->setAllIn(true);
+  }
+
+  int bet{player->getRoundBet()};
+  if (player->isAllIn()) {
+    gameIO().log(player->getName() + " is all in", LogKind::Alert);
+  }
+  if (bet > currentBet) {
+    currentBet = bet;
+    gameIO().log(player->getName() + " raises to " + std::to_string(bet));
+    return false;
+  }
+  gameIO().log(player->getName() + " calls " + std::to_string(bet));
+  return true;
 }
 
 int PokerGame::getPlayerBet(Player *player) {
@@ -372,9 +362,6 @@ void PokerGame::advanceRound() {
   for (auto &player : players) {
     player->resetRoundBet();
   }
-  for (Pot &pot : potManager.pots) {
-    pot.setRoundBeginAmount(pot.amount);
-  }
 }
 
 int PokerGame::getActivePlayerCount() const {
@@ -384,10 +371,15 @@ int PokerGame::getActivePlayerCount() const {
 
 void PokerGame::determineWinner() {
   gameIO().log("Showdown", LogKind::Section);
+  std::vector<Player *> handPlayers;
+  for (const auto &player : players) {
+    handPlayers.push_back(player.get());
+  }
+  potManager.buildShowdownPots(handPlayers);
   publishState();
 
   for (Pot &pot : potManager.pots) {
-    if (pot.eligiblePlayers.size() == 1) {
+    if (pot.eligiblePlayers.size() <= 1) {
       continue;
     }
     HandEvaluation currentBestHand{Hand::Type::None, std::vector<Card>{},
