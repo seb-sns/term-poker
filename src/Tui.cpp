@@ -344,41 +344,52 @@ void TuiIO::run() {
 
   std::thread gameThread([] { PokerGame::getInstance()->playGame(); });
 
-  auto themedButton = [this](Color Theme::*bg) {
+  // EntryState.focused also reports mouse hover, which lingers at the last
+  // mouse position and can mark a second button; query the component's real
+  // focus instead so exactly one button shows the ▸ ◂ marker.
+  auto themedButton = [this](ConstStringRef label,
+                             std::function<void()> onClick, Color Theme::*bg) {
+    auto self = std::make_shared<ComponentBase *>(nullptr);
     ButtonOption option;
-    option.transform = [this, bg](const EntryState &s) {
+    option.transform = [this, bg, self](const EntryState &s) {
       const Theme &t = themes()[themeIndex];
-      std::string label =
-          s.focused ? "▸ " + s.label + " ◂" : "  " + s.label + "  ";
-      Element e = text(label) | center | borderEmpty | bgcolor(t.*bg) |
+      bool focused = *self != nullptr && (*self)->Focused();
+      std::string marked =
+          focused ? "▸ " + s.label + " ◂" : "  " + s.label + "  ";
+      Element e = text(marked) | center | borderEmpty | bgcolor(t.*bg) |
                   color(t.buttonText);
-      if (s.focused) {
+      if (focused) {
         e = e | bold;
       }
       return e;
     };
-    return option;
+    Component button = Button(label, std::move(onClick), option);
+    *self = button.get();
+    // Hovering moves real focus, so the marker follows the mouse instead of
+    // showing on a second button alongside the keyboard-focused one.
+    ComponentBase *raw = button.get();
+    return Hoverable(button, [raw] { raw->TakeFocus(); }, [] {});
   };
 
-  auto foldButton = Button(
-      &foldLabel, [this] { submitAction(Action::Fold); },
-      themedButton(&Theme::btnFold));
-  auto callButton = Button(
-      &callLabel, [this] { submitAction(Action::Call); },
-      themedButton(&Theme::btnCall));
+  auto foldButton = themedButton(
+      &foldLabel, [this] { submitAction(Action::Fold); }, &Theme::btnFold);
+  auto callButton = themedButton(
+      &callLabel, [this] { submitAction(Action::Call); }, &Theme::btnCall);
   auto raiseSlider = Slider("", &raiseAmount, &raiseMin, &raiseMax, 1);
-  auto raiseButton = Button(
-      &raiseLabel, [this] { submitAction(Action::Raise); },
-      themedButton(&Theme::btnRaise));
-  auto allInButton = Button(
-      &allInLabel, [this] { submitAction(Action::AllIn); },
-      themedButton(&Theme::btnAllIn));
+  auto raiseButton = themedButton(
+      &raiseLabel, [this] { submitAction(Action::Raise); }, &Theme::btnRaise);
+  auto allInButton = themedButton(
+      &allInLabel, [this] { submitAction(Action::AllIn); }, &Theme::btnAllIn);
 
+  // Keep the slider and raise button as direct children of the row: a nested
+  // container would swallow Tab (it wraps within the innermost container), so
+  // Tab could never leave the slider/raise pair.
   auto maybeCall = Maybe(callButton, &canCall);
   auto actionRow = Container::Horizontal({
       foldButton,
       maybeCall,
-      Maybe(Container::Horizontal({raiseSlider, raiseButton}), &canRaise),
+      Maybe(raiseSlider, &canRaise),
+      Maybe(raiseButton, &canRaise),
       allInButton,
   });
   auto actionBar = Maybe(actionRow, &promptActive);
@@ -389,8 +400,8 @@ void TuiIO::run() {
     actionRow->SetActiveChild(canCall ? maybeCall : foldButton);
   };
 
-  auto quitButton = Button("Quit", screenInteractive.ExitLoopClosure(),
-                           themedButton(&Theme::btnFold));
+  auto quitButton = themedButton("Quit", screenInteractive.ExitLoopClosure(),
+                                 &Theme::btnFold);
   auto quitBar = Maybe(quitButton, &finished);
 
   auto root = Container::Vertical({actionBar, quitBar});
